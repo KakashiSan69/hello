@@ -5,63 +5,63 @@ import asyncio
 from fastapi import FastAPI, HTTPException
 from starlette.responses import FileResponse
 from pyrogram import Client
-from pyrogram.errors import FloodWait
+from pyrogram.types import Message
 
 api_id = 21613005
 api_hash = "083d8033c044608267978d2f04d8b0d5"
-channel = "AnimeHentai_Sex"
-download_dir = "downloads"
-token_map = {}
-vps_ip = "129.146.180.197"
+VPS_IP = "129.146.180.197"
+VIDEO_DIR = "downloads"
+TOKEN_MAP = {}
+CHANNEL = "AnimeHentai_Sex"
 
 app = FastAPI()
 client = Client("anon", api_id=api_id, api_hash=api_hash)
 
 @app.on_event("startup")
 async def startup_event():
-    os.makedirs(download_dir, exist_ok=True)
+    if not os.path.exists(VIDEO_DIR):
+        os.makedirs(VIDEO_DIR)
     await client.start()
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    await client.stop()
+
 @app.get("/get_video")
-async def get_random_video():
-    async for msg in client.get_chat_history(channel, limit=200):
-        try:
-            if msg.video and 600 <= msg.video.duration <= 1500:
-                file_name = f"{msg.video.file_name or msg.video.file_id}.mp4"
-                file_path = os.path.join(download_dir, file_name)
+async def get_video():
+    messages = []
+    async for msg in client.get_chat_history(CHANNEL, limit=100):
+        if msg.video and 600 <= msg.video.duration <= 1500:
+            messages.append(msg)
 
-                if not os.path.exists(file_path):
-                    await msg.download(file_path)
+    if not messages:
+        raise HTTPException(status_code=404, detail="No suitable video found")
 
-                token = secrets.token_urlsafe(12)
-                token_map[token] = file_path
+    selected: Message = random.choice(messages)
+    file_path = await client.download_media(selected, file_name=VIDEO_DIR)
 
-                return {
-                    "download": f"http://{vps_ip}:69/download/{token}",
-                    "filename": file_name,
-                    "duration": msg.video.duration
-                }
-        except FloodWait as e:
-            await asyncio.sleep(e.value)
+    if not file_path:
+        raise HTTPException(status_code=500, detail="Download failed")
 
-    raise HTTPException(status_code=404, detail="No suitable video found")
+    token = secrets.token_urlsafe(16)
+    TOKEN_MAP[token] = file_path
+
+    return {"status": "success", "download_url": f"http://{VPS_IP}:69/download/{token}"}
 
 @app.get("/download/{token}")
 async def download_file(token: str):
-    if token not in token_map:
+    if token not in TOKEN_MAP:
         raise HTTPException(status_code=403, detail="Invalid or expired token")
 
-    file_path = token_map.pop(token)
+    file_path = TOKEN_MAP.pop(token)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
 
-    response = FileResponse(file_path, filename=os.path.basename(file_path), media_type='video/mp4')
-
-    @response.call_on_close
-    def cleanup():
-        try:
+    async def delete_after_send():
+        await asyncio.sleep(5)
+        if os.path.exists(file_path):
             os.remove(file_path)
-        except:
-            pass
 
-    return response
+    asyncio.create_task(delete_after_send())
+
+    return FileResponse(file_path, media_type="video/mp4", filename=os.path.basename(file_path))
