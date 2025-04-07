@@ -37,7 +37,7 @@ async def get_random_video():
                 token_map[token] = file_path
 
                 return {
-                    "download": f"http://{vps_ip}:8000/download/{token}",
+                    "download": f"http://{vps_ip}:69/download/{token}",
                     "filename": file_name,
                     "duration": msg.video.duration
                 }
